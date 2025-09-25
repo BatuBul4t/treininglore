@@ -187,20 +187,23 @@ Gere variedade de tópicos. Não inclua explicações fora do campo resolucao_de
   }
 }
 
-function extractTextFromResponse(data){
+function extractTextFromResponse(data) {
   if (
     data &&
     data.candidates &&
     data.candidates[0] &&
     data.candidates[0].content &&
     data.candidates[0].content.parts &&
+    Array.isArray(data.candidates[0].content.parts) &&
     data.candidates[0].content.parts[0] &&
-    data.candidates[0].content.parts[0].text
+    typeof data.candidates[0].content.parts[0].text === "string"
   ) {
     return data.candidates[0].content.parts[0].text;
   }
+  console.error("Resposta inesperada da API:", data);
   return null;
 }
+
 	
 
 function tryExtractJsonSubstring(text){
