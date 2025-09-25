@@ -188,17 +188,20 @@ Gere variedade de tópicos. Não inclua explicações fora do campo resolucao_de
 }
 
 function extractTextFromResponse(data){
-  if(!data) return null;
-  if(data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content[0] && data.candidates[0].content[0].parts && data.candidates[0].content[0].parts[0]) return data.candidates[0].content[0].parts[0].text;
-  if(data.candidates && data.candidates[0] && data.candidates[0].content && Array.isArray(data.candidates[0].content)){
-    for(const c of data.candidates[0].content){
-      if(c.parts && c.parts[0] && c.parts[0].text) return c.parts[0].text;
-    }
+  if (
+    data &&
+    data.candidates &&
+    data.candidates[0] &&
+    data.candidates[0].content &&
+    data.candidates[0].content.parts &&
+    data.candidates[0].content.parts[0] &&
+    data.candidates[0].content.parts[0].text
+  ) {
+    return data.candidates[0].content.parts[0].text;
   }
-  if(data.output && Array.isArray(data.output) && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) return data.output[0].content[0].text;
-  if(typeof data.text === "string") return data.text;
   return null;
 }
+	
 
 function tryExtractJsonSubstring(text){
   const first = text.indexOf("[");
@@ -342,4 +345,3 @@ function adaptLevel(){
 </script>
 </body>
 </html>
-
