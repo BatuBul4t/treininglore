@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gerador Adaptativo de Questões (Gemini)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1724;
+    --card:#0b1220;
+    --accent:#6ee7b7;
+    --muted:#9aa4b2;
+    --glass: rgba(255,255,255,0.03);
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+  body{background:linear-gradient(180deg,#071025 0%,var(--bg) 100%);color:#e6f0f2;display:flex;align-items:flex-start;justify-content:center;padding:28px;}
+  .app{width:100%;max-width:1100px;}
+  header{display:flex;align-items:center;gap:18px;margin-bottom:18px}
+  .logo{display:flex;flex-direction:column;gap:2px}
+  .title{font-size:20px;font-weight:700;color:#eafff2;letter-spacing:-0.2px}
+  .subtitle{font-size:12px;color:var(--muted)}
+  .bar{margin-left:auto;display:flex;gap:12px;align-items:center}
+  .badge{background:var(--card);padding:8px 12px;border-radius:999px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px}
+  .badge .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px rgba(110,231,183,0.15)}
+  .controls{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+  .btn{background:linear-gradient(90deg,var(--accent),#38bdf8);color:#042024;padding:10px 14px;border-radius:10px;border:none;font-weight:700;cursor:pointer;box-shadow:0 8px 30px rgba(56,189,248,0.08)}
+  .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr;gap:14px}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;padding:16px;border:1px solid rgba(255,255,255,0.03);display:flex;flex-direction:column;gap:10px}
+  .card h3{margin:0;font-size:15px;color:#e7fffb}
+  .meta{font-size:12px;color:var(--muted);display:flex;gap:10px;align-items:center}
+  .q-text{font-size:14px;line-height:1.45;color:#dff7f0}
+  .alts{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+  .alt-btn{background:var(--glass);border:1px solid rgba(255,255,255,0.02);padding:10px;border-radius:10px;text-align:left;cursor:pointer;font-weight:600}
+  .alt-btn.correct{background:linear-gradient(90deg,#144c35,#1e7a50);color:#eafff2;border-color:rgba(110,231,183,0.18)}
+  .alt-btn.wrong{background:linear-gradient(90deg,#4b1a1a,#7b2b2b);color:#ffe9e9;border-color:rgba(255,120,120,0.12)}
+  .resolucao{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;font-size:13px;color:var(--muted);display:none}
+  .topline{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .small{font-size:13px;color:var(--muted)}
+  .status{font-size:13px;padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.02);color:var(--muted);display:inline-flex;gap:8px;align-items:center}
+  .loader{width:18px;height:18px;border-radius:50%;border:3px solid rgba(255,255,255,0.08);border-top-color:var(--accent);animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
+  @media (min-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="logo">
+        <div class="title">Gerador Adaptativo de Questões</div>
+        <div class="subtitle">Gera lotes de 10 questões - Modelo: Gemini Flash 2.5</div>
+      </div>
+      <div class="bar">
+        <div class="badge" id="badge-level"><div class="dot"></div><div id="level-label">Nível 1</div></div>
+        <div class="badge"><div id="score-label">Pontuação: 0</div></div>
+      </div>
+    </header>
+
+    <div class="controls">
+      <button class="btn" id="next-btn">Gerar 10 questões</button>
+      <button class="btn secondary" id="reset-btn">Redefinir progresso</button>
+      <div style="margin-left:auto" id="status-area"></div>
+    </div>
+
+    <main id="main">
+      <div class="grid" id="questions-grid"></div>
+    </main>
+
+    <footer id="footer">Abra localmente. Se erro de API aparecer, verifique chave, permissões e restrições de origem (CORS).</footer>
+  </div>
+
+<script>
+const API_KEY = "AIzaSyCEwyJOyrssZ82XOv8YfavzeZmH2ftj4A4";
+const MODEL = "gemini-2.5-flash";
+const STORAGE_KEYS = {QUESTIONS:"gaq_questions_v1",SCORE:"gaq_score_v1",LEVEL:"gaq_level_v1",TOPICS:"gaq_topics_v1"};
+let questions = [];
+let score = parseInt(localStorage.getItem(STORAGE_KEYS.SCORE)) || 0;
+let level = parseInt(localStorage.getItem(STORAGE_KEYS.LEVEL)) || 1;
+document.getElementById("score-label").textContent = "Pontuação: " + score;
+document.getElementById("level-label").textContent = "Nível " + level;
+document.getElementById("next-btn").addEventListener("click", handleGenerate);
+document.getElementById("reset-btn").addEventListener("click", handleReset);
+loadSaved();
+
+function setStatus(html,loading=false){
+  const s = document.getElementById("status-area");
+  s.innerHTML = "";
+  if(loading){
+    const wrap = document.createElement("div");
+    wrap.className = "status";
+    const l = document.createElement("div");
+    l.className = "loader";
+    wrap.appendChild(l);
+    const t = document.createElement("div");
+    t.style.marginLeft = "8px";
+    t.textContent = html;
+    wrap.appendChild(t);
+    s.appendChild(wrap);
+  } else {
+    if(html) s.innerHTML = `<div class="status">${html}</div>`;
+  }
+}
+
+function handleReset(){
+  localStorage.removeItem(STORAGE_KEYS.QUESTIONS);
+  localStorage.removeItem(STORAGE_KEYS.SCORE);
+  localStorage.removeItem(STORAGE_KEYS.LEVEL);
+  localStorage.removeItem(STORAGE_KEYS.TOPICS);
+  questions = [];
+  score = 0;
+  level = 1;
+  renderQuestions();
+  document.getElementById("score-label").textContent = "Pontuação: 0";
+  document.getElementById("level-label").textContent = "Nível 1";
+  setStatus("Progresso redefinido");
+}
+
+async function handleGenerate(){
+  setStatus("Gerando questões...", true);
+  document.getElementById("next-btn").disabled = true;
+  try {
+    const prompt = `
+Você é um gerador de 10 questões estilo ITA, matemática/física, adaptadas ao nível ${level}. Retorne APENAS um JSON array com 10 objetos no formato:
+[
+  {
+    "id":"ID_UNICO",
+    "ano":2024,
+    "materia":"Matemática" | "Física",
+    "topico":"Tópico principal",
+    "enunciado":"Texto da questão",
+    "alternativas":[{"letra":"A","texto":"..."},{"letra":"B","texto":"..."},{"letra":"C","texto":"..."},{"letra":"D","texto":"..."},{"letra":"E","texto":"..."}],
+    "resposta_correta":"A" | "B" | "C" | "D" | "E",
+    "resolucao_detalhada":"Passo a passo da resolução"
+  }
+]
+Gere variedade de tópicos. Não inclua explicações fora do campo resolucao_detalhada.`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
+    const body = {contents:[{parts:[{text:prompt}],role:"user"}]};
+    const res = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!res.ok){
+      const txt = await res.text();
+      setStatus("Erro na API: " + res.status + " — " + res.statusText + ". Veja console para detalhes.");
+      console.error("Resposta não OK:", res.status, res.statusText, txt);
+      document.getElementById("next-btn").disabled = false;
+      return;
+    }
+    const data = await res.json();
+    const text = extractTextFromResponse(data);
+    if(!text){
+      setStatus("Resposta da API não contem texto esperado. Veja console.");
+      console.error("Formato inesperado:", data);
+      document.getElementById("next-btn").disabled = false;
+      return;
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch(e){
+      const maybe = tryExtractJsonSubstring(text);
+      if(maybe) parsed = maybe;
+      else {
+        setStatus("Não foi possível parsear JSON retornado pela IA. Veja console.");
+        console.error("Texto recebido:", text);
+        document.getElementById("next-btn").disabled = false;
+        return;
+      }
+    }
+    if(!Array.isArray(parsed)){
+      setStatus("API retornou JSON, mas não é um array de questões.");
+      console.error("Parsed:", parsed);
+      document.getElementById("next-btn").disabled = false;
+      return;
+    }
+    questions = parsed.map(q => normalizeQuestion(q));
+    localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(questions));
+    renderQuestions();
+    setStatus("10 questões carregadas");
+  } catch(err){
+    setStatus("Erro ao comunicar com a API. Veja console para detalhes.");
+    console.error(err);
+  } finally {
+    document.getElementById("next-btn").disabled = false;
+  }
+}
+
+function extractTextFromResponse(data){
+  if(!data) return null;
+  if(data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content[0] && data.candidates[0].content[0].parts && data.candidates[0].content[0].parts[0]) return data.candidates[0].content[0].parts[0].text;
+  if(data.candidates && data.candidates[0] && data.candidates[0].content && Array.isArray(data.candidates[0].content)){
+    for(const c of data.candidates[0].content){
+      if(c.parts && c.parts[0] && c.parts[0].text) return c.parts[0].text;
+    }
+  }
+  if(data.output && Array.isArray(data.output) && data.output[0] && data.output[0].content && data.output[0].content[0] && data.output[0].content[0].text) return data.output[0].content[0].text;
+  if(typeof data.text === "string") return data.text;
+  return null;
+}
+
+function tryExtractJsonSubstring(text){
+  const first = text.indexOf("[");
+  const last = text.lastIndexOf("]");
+  if(first===-1 || last===-1 || last<=first) return null;
+  const sub = text.slice(first, last+1);
+  try{
+    return JSON.parse(sub);
+  }catch(e){
+    return null;
+  }
+}
+
+function normalizeQuestion(q){
+  const a = q.alternativas || q.alternatives || q.options || [];
+  let alts = a.map(it => {
+    if(typeof it === "string") return {letra:"",texto:it};
+    return {letra:it.letra || it.letter || "", texto: it.texto || it.text || it.value || ""};
+  });
+  if(alts.length===0 && q.alternativasTexto){
+    alts = q.alternativasTexto.map((t,i)=>({letra:String.fromCharCode(65+i),texto:t}));
+  }
+  if(alts.length>0 && (!alts[0].letra || alts[0].letra==="")){
+    alts = alts.map((it,i)=>({letra:String.fromCharCode(65+i),texto:it.texto}));
+  }
+  return {
+    id: q.id || q.identificador || ("Q_" + Math.random().toString(36).slice(2,9)),
+    ano: q.ano || q.year || new Date().getFullYear(),
+    materia: q.materia || q.subject || "Matemática",
+    topico: q.topico || q.topic || "",
+    enunciado: q.enunciado || q.prompt || q.statement || "",
+    alternativas: alts,
+    resposta_correta: (q.resposta_correta||q.correct||q.answer||"").toString().trim().toUpperCase(),
+    resolucao_detalhada: q.resolucao_detalhada || q.explanation || q.solution || ""
+  };
+}
+
+function renderQuestions(){
+  const grid = document.getElementById("questions-grid");
+  grid.innerHTML = "";
+  document.getElementById("score-label").textContent = "Pontuação: " + score;
+  document.getElementById("level-label").textContent = "Nível " + level;
+  if(!questions || questions.length===0){
+    grid.innerHTML = `<div class="card"><div class="topline"><div class="small">Nenhuma questão carregada. Clique em "Gerar 10 questões".</div></div></div>`;
+    return;
+  }
+  questions.forEach((q,idx) => {
+    const c = document.createElement("div");
+    c.className = "card";
+    const h = document.createElement("h3");
+    h.textContent = `${idx+1}. (${q.materia}) ${q.topico || ""}`;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.innerHTML = `<div class="small">ID: ${q.id} • Ano: ${q.ano}</div>`;
+    const p = document.createElement("div");
+    p.className = "q-text";
+    p.innerHTML = q.enunciado;
+    const alts = document.createElement("div");
+    alts.className = "alts";
+    q.alternativas.forEach(alt => {
+      const b = document.createElement("button");
+      b.className = "alt-btn";
+      b.textContent = alt.letra + " — " + alt.texto;
+      b.addEventListener("click", ()=> handleAnswerClick(q,b));
+      alts.appendChild(b);
+    });
+    const resol = document.createElement("div");
+    resol.className = "resolucao";
+    resol.innerHTML = `<strong>Resolução</strong><div style="margin-top:6px">${q.resolucao_detalhada || "Sem resolução fornecida."}</div>`;
+    c.appendChild(h);
+    c.appendChild(meta);
+    c.appendChild(p);
+    c.appendChild(alts);
+    c.appendChild(resol);
+    grid.appendChild(c);
+  });
+}
+
+function handleAnswerClick(question,button){
+  if(button.classList.contains("disabled")) return;
+  const correct = (question.resposta_correta || "").toUpperCase();
+  const chosen = button.textContent.trim().slice(0,1).toUpperCase();
+  const parent = button.parentElement;
+  Array.from(parent.children).forEach(b => b.classList.add("disabled"));
+  if(chosen === correct && correct){
+    button.classList.add("correct");
+    incrementScore(10);
+  } else {
+    button.classList.add("wrong");
+    Array.from(parent.children).forEach(b => {
+      if(b.textContent.trim().slice(0,1).toUpperCase() === correct){
+        b.classList.add("correct");
+      }
+    });
+    incrementScore(0);
+  }
+  const card = parent.parentElement;
+  const resol = card.querySelector(".resolucao");
+  resol.style.display = "block";
+  saveProgress();
+  adaptLevel();
+}
+
+function incrementScore(add){
+  score = Math.max(0, score + add);
+  document.getElementById("score-label").textContent = "Pontuação: " + score;
+}
+
+function saveProgress(){
+  localStorage.setItem(STORAGE_KEYS.QUESTIONS, JSON.stringify(questions));
+  localStorage.setItem(STORAGE_KEYS.SCORE, String(score));
+  localStorage.setItem(STORAGE_KEYS.LEVEL, String(level));
+}
+
+function loadSaved(){
+  const s = localStorage.getItem(STORAGE_KEYS.QUESTIONS);
+  if(s){
+    try { questions = JSON.parse(s); } catch(e){ questions = []; }
+  }
+  const sc = localStorage.getItem(STORAGE_KEYS.SCORE);
+  if(sc) score = parseInt(sc)||0;
+  const lv = localStorage.getItem(STORAGE_KEYS.LEVEL);
+  if(lv) level = parseInt(lv)||1;
+  renderQuestions();
+}
+
+function adaptLevel(){
+  const prev = level;
+  if(score >= 200) level = 6;
+  else if(score >= 140) level = 5;
+  else if(score >= 100) level = 4;
+  else if(score >= 60) level = 3;
+  else if(score >= 30) level = 2;
+  else level = 1;
+  if(level !== prev) {
+    document.getElementById("level-label").textContent = "Nível " + level;
+    setStatus("Nível ajustado para " + level);
+    localStorage.setItem(STORAGE_KEYS.LEVEL, String(level));
+  }
+}
+</script>
+</body>
+</html>
